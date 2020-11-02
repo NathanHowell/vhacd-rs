@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "vhacd-rs",
+    "vhacd-sys",
+]

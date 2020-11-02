@@ -1,0 +1,4 @@
+[submodule "v-hacd"]
+	path = v-hacd
+	url = https://github.com/kmammou/v-hacd.git
+	shallow = true

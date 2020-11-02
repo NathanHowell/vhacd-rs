@@ -1,0 +1,8 @@
+[package]
+name = "vhacd"
+version = "0.1.0"
+authors = ["Nathan Howell <nathan.d.howell@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+vhacd-sys = { path = "../vhacd-sys" }
