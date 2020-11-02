@@ -1,19 +1,23 @@
+use crate::ParameterError::UnexpectedMode;
+use std::convert::{TryFrom, TryInto};
+use std::error::Error;
+use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
 use std::ptr;
 
-struct VHACD(*mut vhacd_sys::IVHACD);
+pub struct VHACD(*mut vhacd_sys::IVHACD);
 
 impl VHACD {
-    fn new() -> VHACD {
+    pub fn new() -> VHACD {
         let ptr = unsafe { vhacd_sys::CreateVHACD() };
         VHACD(ptr)
     }
 
-    fn cancel(&mut self) {
+    pub fn cancel(&mut self) {
         unsafe { vhacd_sys::IVHACD_Cancel(self.0) }
     }
 
-    fn is_ready(&self) -> bool {
+    pub fn is_ready(&self) -> bool {
         unsafe { vhacd_sys::IVHACD_IsReady_typed(self.0) }
     }
 }
@@ -26,28 +30,39 @@ impl Drop for VHACD {
     }
 }
 
-enum Mode {
+pub enum Mode {
     Voxel,
     Tetrahedron,
 }
 
-struct Parameters {
-    concavity: f64,
-    alpha: f64,
-    beta: f64,
-    min_volume_per_convex_hull: f64,
+pub struct Parameters {
+    /// maximum concavity
+    pub concavity: f64,
+    /// controls the bias toward clipping along symmetry planes
+    pub alpha: f64,
+    /// controls the bias toward clipping along revolution axes
+    pub beta: f64,
+    /// controls the adaptive sampling of the generated convex-hulls
+    pub min_volume_per_convex_hull: f64,
     // IUserCallback* m_callback;
     // IUserLogger* m_logger;
-    resolution: u32,
-    max_num_vertices_per_ch: u16,
-    plane_downsampling: u8,
-    convex_hull_downsampling: u8,
-    pca: bool,
-    mode: Mode,
-    convex_hull_approximation: bool,
-    ocl_acceleration: bool,
-    max_convex_hulls: u32,
-    project_hull_vertices: bool,
+    /// maximum number of voxels generated during the voxelization stage
+    pub resolution: u32,
+    /// controls the maximum number of triangles per convex-hull
+    pub max_num_vertices_per_convex_hull: u16,
+    /// controls the granularity of the search for the "best" clipping plane
+    pub plane_downsampling: u8,
+    /// controls the precision of the convex-hull generation process during the clipping plane selection stage
+    pub convex_hull_downsampling: u8,
+    /// enable/disable normalizing the mesh before applying the convex decomposition
+    pub pca: bool,
+    pub mode: Mode,
+    pub convex_hull_approximation: bool,
+    pub ocl_acceleration: bool,
+    /// the maximum number of convex hulls to produce from the merge operation
+    pub max_convex_hulls: u32,
+    /// project the output convex hull vertices onto the original source mesh to increase the floating point accuracy of the results
+    pub project_hull_vertices: bool,
 }
 
 impl Default for Parameters {
@@ -58,62 +73,91 @@ impl Default for Parameters {
             params
         };
 
-        params.into()
+        params.try_into().unwrap()
     }
 }
 
-impl Into<vhacd_sys::IVHACD_Parameters> for &Parameters {
-    fn into(self) -> vhacd_sys::IVHACD_Parameters {
+impl From<Parameters> for vhacd_sys::IVHACD_Parameters {
+    fn from(value: Parameters) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl From<&Parameters> for vhacd_sys::IVHACD_Parameters {
+    fn from(value: &Parameters) -> vhacd_sys::IVHACD_Parameters {
         vhacd_sys::IVHACD_Parameters {
-            m_concavity: self.concavity,
-            m_alpha: self.alpha,
-            m_beta: self.beta,
-            m_minVolumePerCH: self.min_volume_per_convex_hull,
+            m_concavity: value.concavity,
+            m_alpha: value.alpha,
+            m_beta: value.beta,
+            m_minVolumePerCH: value.min_volume_per_convex_hull,
             m_callback: ptr::null_mut(),
             m_logger: ptr::null_mut(),
-            m_resolution: self.resolution,
-            m_maxNumVerticesPerCH: self.max_num_vertices_per_ch as u32,
-            m_planeDownsampling: self.plane_downsampling as u32,
-            m_convexhullDownsampling: self.convex_hull_downsampling as u32,
-            m_pca: self.pca as u32,
-            m_mode: match self.mode {
+            m_resolution: value.resolution,
+            m_maxNumVerticesPerCH: value.max_num_vertices_per_convex_hull as u32,
+            m_planeDownsampling: value.plane_downsampling as u32,
+            m_convexhullDownsampling: value.convex_hull_downsampling as u32,
+            m_pca: value.pca as u32,
+            m_mode: match value.mode {
                 Mode::Voxel => 0,
                 Mode::Tetrahedron => 1,
             },
-            m_convexhullApproximation: self.convex_hull_approximation as u32,
-            m_oclAcceleration: self.ocl_acceleration as u32,
-            m_maxConvexHulls: self.max_convex_hulls,
-            m_projectHullVertices: self.project_hull_vertices,
+            m_convexhullApproximation: value.convex_hull_approximation as u32,
+            m_oclAcceleration: value.ocl_acceleration as u32,
+            m_maxConvexHulls: value.max_convex_hulls,
+            m_projectHullVertices: value.project_hull_vertices,
         }
     }
 }
 
-impl Into<Parameters> for vhacd_sys::IVHACD_Parameters {
-    fn into(self) -> Parameters {
-        Parameters {
-            concavity: self.m_concavity,
-            alpha: self.m_alpha,
-            beta: self.m_beta,
-            min_volume_per_convex_hull: self.m_minVolumePerCH,
-            resolution: self.m_resolution,
-            max_num_vertices_per_ch: self.m_maxNumVerticesPerCH as u16,
-            plane_downsampling: self.m_planeDownsampling as u8,
-            convex_hull_downsampling: self.m_convexhullDownsampling as u8,
-            pca: self.m_pca != 0,
-            mode: match self.m_mode {
+#[derive(Debug)]
+pub enum ParameterError {
+    UnexpectedMode(u32),
+}
+
+impl Display for ParameterError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Error for ParameterError {}
+
+impl TryFrom<vhacd_sys::IVHACD_Parameters> for Parameters {
+    type Error = ParameterError;
+
+    fn try_from(value: vhacd_sys::IVHACD_Parameters) -> Result<Self, Self::Error> {
+        Self::try_from(&value)
+    }
+}
+
+impl TryFrom<&vhacd_sys::IVHACD_Parameters> for Parameters {
+    type Error = ParameterError;
+
+    fn try_from(value: &vhacd_sys::IVHACD_Parameters) -> Result<Self, Self::Error> {
+        Ok(Parameters {
+            concavity: value.m_concavity,
+            alpha: value.m_alpha,
+            beta: value.m_beta,
+            min_volume_per_convex_hull: value.m_minVolumePerCH,
+            resolution: value.m_resolution,
+            max_num_vertices_per_convex_hull: value.m_maxNumVerticesPerCH as u16,
+            plane_downsampling: value.m_planeDownsampling as u8,
+            convex_hull_downsampling: value.m_convexhullDownsampling as u8,
+            pca: value.m_pca != 0,
+            mode: match value.m_mode {
                 0 => Mode::Voxel,
                 1 => Mode::Tetrahedron,
-                _ => panic!("Unexpected mode {}", self.m_mode),
+                _ => return Err(UnexpectedMode(value.m_mode)),
             },
-            convex_hull_approximation: self.m_convexhullApproximation != 0,
-            ocl_acceleration: self.m_oclAcceleration != 0,
-            max_convex_hulls: self.m_maxConvexHulls,
-            project_hull_vertices: self.m_projectHullVertices,
-        }
+            convex_hull_approximation: value.m_convexhullApproximation != 0,
+            ocl_acceleration: value.m_oclAcceleration != 0,
+            max_convex_hulls: value.m_maxConvexHulls,
+            project_hull_vertices: value.m_projectHullVertices,
+        })
     }
 }
 
-struct ConvexHullIter<'a, T> {
+pub struct ConvexHullIter<'a, T> {
     vhacd: &'a mut VHACD,
     next: u32,
     size: u32,
@@ -160,13 +204,6 @@ impl<T> Iterator for ConvexHullIter<'_, T> {
         }
     }
 }
-
-trait Compute<T> {
-    // type It
-
-    // fn compute() -> dyn IntoIterator<Item = R>;
-}
-// struct Parameters(IVHACD_Parameters);
 
 #[cfg(test)]
 mod tests {
