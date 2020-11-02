@@ -1,7 +1,7 @@
 version: 2
 updates:
 - package-ecosystem: gitsubmodule
-  directory: "/v-hacd"
+  directory: "/"
   schedule:
     interval: monthly
     time: "13:00"
