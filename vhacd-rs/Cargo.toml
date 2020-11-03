@@ -5,4 +5,5 @@ authors = ["Nathan Howell <nathan.d.howell@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+ncollide3d = { version = "0.26.1", optional = true }
 vhacd-sys = { path = "../vhacd-sys" }

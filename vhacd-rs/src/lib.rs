@@ -158,50 +158,139 @@ impl TryFrom<&vhacd_sys::IVHACD_Parameters> for Parameters {
 }
 
 pub struct ConvexHullIter<'a, T> {
-    vhacd: &'a mut VHACD,
+    vhacd: &'a VHACD,
     next: u32,
     size: u32,
     _witness: PhantomData<T>,
 }
 
-impl<T> Iterator for ConvexHullIter<'_, T> {
-    type Item = Vec<[f64; 3]>;
+impl<'a, T> ConvexHullIter<'a, T> {
+    fn new(vhacd: &'a VHACD) -> Self {
+        let size = unsafe { vhacd_sys::IVHACD_GetNConvexHulls(vhacd.0) };
+
+        ConvexHullIter {
+            vhacd,
+            size,
+            next: 0,
+            _witness: PhantomData::default(),
+        }
+    }
+}
+
+trait Points<T> {
+    fn points(&self) -> T;
+}
+
+trait Indices<T> {
+    fn indices(&self) -> T;
+}
+
+#[cfg(feature = "ncollide3d")]
+impl Points<Vec<ncollide3d::na::Point3<f64>>> for vhacd_sys::IVHACD_ConvexHull {
+    fn points(&self) -> Vec<ncollide3d::na::Point3<f64>> {
+        let points = self.m_nPoints / 3;
+        let mut buf = Vec::with_capacity(points as usize);
+        for i in 0..points {
+            let off = (i * 3) as isize;
+            let point = unsafe {
+                ncollide3d::na::Point3::new(
+                    *self.m_points.offset(off + 0),
+                    *self.m_points.offset(off + 1),
+                    *self.m_points.offset(off + 2),
+                )
+            };
+            buf.push(point)
+        }
+        buf
+    }
+}
+
+#[cfg(feature = "ncollide3d")]
+impl Indices<ncollide3d::procedural::IndexBuffer> for vhacd_sys::IVHACD_ConvexHull {
+    fn indices(&self) -> ncollide3d::procedural::IndexBuffer {
+        let triangles = self.m_nTriangles / 3;
+        let mut buf = Vec::with_capacity(triangles as usize);
+        for i in 0..triangles {
+            let off = (i * 3) as isize;
+            let point = unsafe {
+                ncollide3d::na::Point3::new(
+                    *self.m_triangles.offset(off + 0),
+                    *self.m_triangles.offset(off + 1),
+                    *self.m_triangles.offset(off + 2),
+                )
+            };
+            buf.push(point)
+        }
+
+        ncollide3d::procedural::IndexBuffer::Unified(buf)
+    }
+}
+
+#[cfg(feature = "ncollide3d")]
+impl Iterator for ConvexHullIter<'_, ncollide3d::procedural::TriMesh<f64>> {
+    type Item = ncollide3d::procedural::TriMesh<f64>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.next >= self.size {
             None
         } else {
-            let ch = {
-                let mut ch = vhacd_sys::IVHACD_ConvexHull {
-                    m_points: ptr::null_mut(),
-                    m_triangles: ptr::null_mut(),
-                    m_nPoints: 0,
-                    m_nTriangles: 0,
-                    m_volume: 0.0,
-                    m_center: [0.0, 0.0, 0.0],
-                };
-
-                unsafe { vhacd_sys::IVHACD_GetConvexHull(self.vhacd.0, self.next, &mut ch) };
-
-                ch
+            let mut ch = vhacd_sys::IVHACD_ConvexHull {
+                m_points: ptr::null_mut(),
+                m_triangles: ptr::null_mut(),
+                m_nPoints: 0,
+                m_nTriangles: 0,
+                m_volume: 0.0,
+                m_center: [0.0, 0.0, 0.0],
             };
 
-            let triangles = ch.m_nTriangles / 3;
-            let mut buf = Vec::with_capacity(triangles as usize);
-            for i in 0..triangles {
-                let off = (i * 3) as isize;
-                let tri = unsafe {
-                    [
-                        *ch.m_points.offset(*ch.m_triangles.offset(off + 0) as isize),
-                        *ch.m_points.offset(*ch.m_triangles.offset(off + 1) as isize),
-                        *ch.m_points.offset(*ch.m_triangles.offset(off + 2) as isize),
-                    ]
-                };
-                buf.push(tri)
-            }
+            unsafe { vhacd_sys::IVHACD_GetConvexHull(self.vhacd.0, self.next, &mut ch) };
 
-            Some(buf)
+            let ch = ch;
+
+            Some(ncollide3d::procedural::TriMesh::<f64>::new(
+                ch.points(),
+                None,
+                None,
+                Some(ch.indices()),
+            ))
         }
+    }
+}
+
+pub trait Compute
+where
+    Self: Sized,
+{
+    fn vhacd(&self, params: &Parameters) -> Vec<Self>;
+}
+
+#[cfg(feature = "ncollide3d")]
+impl Compute for ncollide3d::procedural::TriMesh<f64> {
+    fn vhacd(&self, params: &Parameters) -> Vec<Self> {
+        let params = params.into();
+        let indices = self.flat_indices();
+        let points = self
+            .coords
+            .iter()
+            .flat_map(|p| {
+                let p = p.coords;
+                vec![p.x, p.y, p.z]
+            })
+            .collect::<Vec<f64>>();
+
+        let vhacd = VHACD::new();
+        unsafe {
+            vhacd_sys::IVHACD_Compute_f64(
+                vhacd.0,
+                points.as_ptr(),
+                points.len().try_into().unwrap(),
+                indices.as_ptr(),
+                indices.len().try_into().unwrap(),
+                &params,
+            )
+        };
+
+        ConvexHullIter::<ncollide3d::procedural::TriMesh<f64>>::new(&vhacd).collect()
     }
 }
 
