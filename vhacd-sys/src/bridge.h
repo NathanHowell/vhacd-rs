@@ -56,13 +56,12 @@ bool IVHACD_ComputeCenterOfMass(
 bool IVHACD_IsReady_typed(const VHACD::IVHACD* self);
 
 typedef void (*UserCallback)(
-    void* self,
     const double overallProgress,
     const double stageProgress,
     const double operationProgress,
     const char* const stage,
     const char* const operation);
-VHACD::IVHACD::IUserCallback* IVHACD_CreateUserCallback(void* self, UserCallback callback);
+VHACD::IVHACD::IUserCallback* IVHACD_CreateUserCallback(UserCallback callback);
 void IVHACD_FreeUserCallback(VHACD::IVHACD::IUserCallback* callback);
 
 typedef void (*UserLogger)(

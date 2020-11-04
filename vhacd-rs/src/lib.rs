@@ -1,17 +1,16 @@
 use crate::ParameterError::UnexpectedMode;
-use log::debug;
 use std::convert::{TryFrom, TryInto};
 use std::error::Error;
 use std::ffi::CStr;
 use std::fmt::{self, Display, Formatter};
 use std::ptr;
 
-pub struct VHACD(*mut vhacd_sys::IVHACD);
+struct IVHACD(*mut vhacd_sys::IVHACD);
 
-impl VHACD {
-    pub fn new() -> VHACD {
+impl IVHACD {
+    pub fn new() -> IVHACD {
         let ptr = unsafe { vhacd_sys::CreateVHACD() };
-        VHACD(ptr)
+        IVHACD(ptr)
     }
 
     pub fn cancel(&mut self) {
@@ -23,7 +22,7 @@ impl VHACD {
     }
 }
 
-impl Drop for VHACD {
+impl Drop for IVHACD {
     fn drop(&mut self) {
         unsafe {
             vhacd_sys::IVHACD_Release(self.0);
@@ -34,21 +33,6 @@ impl Drop for VHACD {
 pub enum Mode {
     Voxel,
     Tetrahedron,
-}
-
-pub trait Callback {
-    fn update(
-        &mut self,
-        overall_progress: f64,
-        stage_progress: f64,
-        operation_progress: f64,
-        stage: &str,
-        operation: &str,
-    );
-}
-
-trait Logger {
-    fn log(&mut self, message: &str);
 }
 
 pub struct Parameters {
@@ -106,7 +90,7 @@ impl From<&Parameters> for vhacd_sys::IVHACD_Parameters {
             m_alpha: value.alpha,
             m_beta: value.beta,
             m_minVolumePerCH: value.min_volume_per_convex_hull,
-            m_callback: ptr::null_mut(),
+            m_callback: unsafe { vhacd_sys::IVHACD_CreateUserCallback(Some(callback)) },
             m_logger: unsafe { vhacd_sys::IVHACD_CreateUserLogger(Some(logger)) },
             m_resolution: value.resolution,
             m_maxNumVerticesPerCH: value.max_num_vertices_per_convex_hull as u32,
@@ -175,7 +159,7 @@ impl TryFrom<&vhacd_sys::IVHACD_Parameters> for Parameters {
 
 #[cfg(feature = "ncollide3d")]
 pub struct ConvexHullIter<'a, T> {
-    vhacd: &'a VHACD,
+    vhacd: &'a IVHACD,
     next: u32,
     size: u32,
     _witness: std::marker::PhantomData<T>,
@@ -183,7 +167,7 @@ pub struct ConvexHullIter<'a, T> {
 
 #[cfg(feature = "ncollide3d")]
 impl<'a, T> ConvexHullIter<'a, T> {
-    fn new(vhacd: &'a VHACD) -> Self {
+    fn new(vhacd: &'a IVHACD) -> Self {
         let size = unsafe { vhacd_sys::IVHACD_GetNConvexHulls(vhacd.0) };
 
         ConvexHullIter {
@@ -247,7 +231,25 @@ impl Indices<ncollide3d::procedural::IndexBuffer> for vhacd_sys::IVHACD_ConvexHu
 extern "C" fn logger(msg: *const ::std::os::raw::c_char) {
     let msg = unsafe { CStr::from_ptr(msg) };
     let msg = msg.to_str().unwrap();
-    debug!("{}", msg);
+    log::debug!("{}", msg);
+}
+
+extern "C" fn callback(
+    overall_progress: f64,
+    stage_progress: f64,
+    operation_progress: f64,
+    stage: *const ::std::os::raw::c_char,
+    operation: *const ::std::os::raw::c_char,
+) {
+    let stage = unsafe { CStr::from_ptr(stage) }.to_str().unwrap();
+    let operation = unsafe { CStr::from_ptr(operation) }.to_str().unwrap();
+    tracing::debug!(
+        stage = stage,
+        operation = operation,
+        overall_progress = %overall_progress,
+        stage_progress = %stage_progress,
+        operation_progress = %operation_progress
+    );
 }
 
 #[cfg(feature = "ncollide3d")]
@@ -283,7 +285,7 @@ impl Iterator for ConvexHullIter<'_, ncollide3d::procedural::TriMesh<f64>> {
     }
 }
 
-pub trait Compute
+pub trait VHACD
 where
     Self: Sized,
 {
@@ -291,7 +293,7 @@ where
 }
 
 #[cfg(feature = "ncollide3d")]
-impl Compute for ncollide3d::procedural::TriMesh<f64> {
+impl VHACD for ncollide3d::procedural::TriMesh<f64> {
     fn vhacd(&self, params: &Parameters) -> Vec<Self> {
         let params = params.into();
         let indices = self.flat_indices();
@@ -304,7 +306,7 @@ impl Compute for ncollide3d::procedural::TriMesh<f64> {
             })
             .collect::<Vec<f64>>();
 
-        let vhacd = VHACD::new();
+        let vhacd = IVHACD::new();
         unsafe {
             vhacd_sys::IVHACD_Compute_f64(
                 vhacd.0,
@@ -322,10 +324,10 @@ impl Compute for ncollide3d::procedural::TriMesh<f64> {
 
 #[cfg(test)]
 mod tests {
-    use crate::VHACD;
+    use crate::IVHACD;
 
     #[test]
     fn it_works() {
-        let _test = VHACD::new();
+        let _test = IVHACD::new();
     }
 }

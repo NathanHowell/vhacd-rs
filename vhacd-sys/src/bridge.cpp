@@ -79,11 +79,10 @@ bool IVHACD_IsReady_typed(const VHACD::IVHACD* self) {
 
 class UserCallbackProxy : public VHACD::IVHACD::IUserCallback {
 private:
-    void* _self;
     UserCallback _cb;
 
 public:
-    UserCallbackProxy(void* self, UserCallback cb) : _self(self), _cb(cb) {
+    UserCallbackProxy(UserCallback cb) : _cb(cb) {
     }
 
 private:
@@ -93,12 +92,12 @@ private:
         const double operationProgress,
         const char* const stage,
         const char* const operation) override {
-        _cb(_self, overallProgress, stageProgress, operationProgress, stage, operation);
+        _cb(overallProgress, stageProgress, operationProgress, stage, operation);
     }
 };
 
-VHACD::IVHACD::IUserCallback* IVHACD_CreateUserCallback(void* self, UserCallback callback) {
-    return new UserCallbackProxy(self, callback);
+VHACD::IVHACD::IUserCallback* IVHACD_CreateUserCallback(UserCallback callback) {
+    return new UserCallbackProxy(callback);
 }
 
 void IVHACD_FreeUserCallback(VHACD::IVHACD::IUserCallback* callback) {
