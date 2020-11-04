@@ -55,4 +55,19 @@ bool IVHACD_ComputeCenterOfMass(
 // messages in the caller's current thread.
 bool IVHACD_IsReady_typed(const VHACD::IVHACD* self);
 
+typedef void (*UserCallback)(
+    void* self,
+    const double overallProgress,
+    const double stageProgress,
+    const double operationProgress,
+    const char* const stage,
+    const char* const operation);
+VHACD::IVHACD::IUserCallback* IVHACD_CreateUserCallback(void* self, UserCallback callback);
+void IVHACD_FreeUserCallback(VHACD::IVHACD::IUserCallback* callback);
+
+typedef void (*UserLogger)(
+    const char* const msg);
+VHACD::IVHACD::IUserLogger* IVHACD_CreateUserLogger(UserLogger logger);
+void IVHACD_FreeUserLogger(VHACD::IVHACD::IUserLogger* logger);
+
 #endif // VHACD_BRIDGE_H

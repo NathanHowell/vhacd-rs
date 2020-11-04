@@ -1,8 +1,9 @@
 use crate::ParameterError::UnexpectedMode;
+use log::debug;
 use std::convert::{TryFrom, TryInto};
 use std::error::Error;
+use std::ffi::CStr;
 use std::fmt::{self, Display, Formatter};
-use std::marker::PhantomData;
 use std::ptr;
 
 pub struct VHACD(*mut vhacd_sys::IVHACD);
@@ -33,6 +34,21 @@ impl Drop for VHACD {
 pub enum Mode {
     Voxel,
     Tetrahedron,
+}
+
+pub trait Callback {
+    fn update(
+        &mut self,
+        overall_progress: f64,
+        stage_progress: f64,
+        operation_progress: f64,
+        stage: &str,
+        operation: &str,
+    );
+}
+
+trait Logger {
+    fn log(&mut self, message: &str);
 }
 
 pub struct Parameters {
@@ -91,7 +107,7 @@ impl From<&Parameters> for vhacd_sys::IVHACD_Parameters {
             m_beta: value.beta,
             m_minVolumePerCH: value.min_volume_per_convex_hull,
             m_callback: ptr::null_mut(),
-            m_logger: ptr::null_mut(),
+            m_logger: unsafe { vhacd_sys::IVHACD_CreateUserLogger(Some(logger)) },
             m_resolution: value.resolution,
             m_maxNumVerticesPerCH: value.max_num_vertices_per_convex_hull as u32,
             m_planeDownsampling: value.plane_downsampling as u32,
@@ -157,13 +173,15 @@ impl TryFrom<&vhacd_sys::IVHACD_Parameters> for Parameters {
     }
 }
 
+#[cfg(feature = "ncollide3d")]
 pub struct ConvexHullIter<'a, T> {
     vhacd: &'a VHACD,
     next: u32,
     size: u32,
-    _witness: PhantomData<T>,
+    _witness: std::marker::PhantomData<T>,
 }
 
+#[cfg(feature = "ncollide3d")]
 impl<'a, T> ConvexHullIter<'a, T> {
     fn new(vhacd: &'a VHACD) -> Self {
         let size = unsafe { vhacd_sys::IVHACD_GetNConvexHulls(vhacd.0) };
@@ -172,7 +190,7 @@ impl<'a, T> ConvexHullIter<'a, T> {
             vhacd,
             size,
             next: 0,
-            _witness: PhantomData::default(),
+            _witness: std::marker::PhantomData::default(),
         }
     }
 }
@@ -226,6 +244,12 @@ impl Indices<ncollide3d::procedural::IndexBuffer> for vhacd_sys::IVHACD_ConvexHu
     }
 }
 
+extern "C" fn logger(msg: *const ::std::os::raw::c_char) {
+    let msg = unsafe { CStr::from_ptr(msg) };
+    let msg = msg.to_str().unwrap();
+    debug!("{}", msg);
+}
+
 #[cfg(feature = "ncollide3d")]
 impl Iterator for ConvexHullIter<'_, ncollide3d::procedural::TriMesh<f64>> {
     type Item = ncollide3d::procedural::TriMesh<f64>;
@@ -246,6 +270,8 @@ impl Iterator for ConvexHullIter<'_, ncollide3d::procedural::TriMesh<f64>> {
             unsafe { vhacd_sys::IVHACD_GetConvexHull(self.vhacd.0, self.next, &mut ch) };
 
             let ch = ch;
+
+            self.next = self.next + 1;
 
             Some(ncollide3d::procedural::TriMesh::<f64>::new(
                 ch.points(),
@@ -285,7 +311,7 @@ impl Compute for ncollide3d::procedural::TriMesh<f64> {
                 points.as_ptr(),
                 points.len().try_into().unwrap(),
                 indices.as_ptr(),
-                indices.len().try_into().unwrap(),
+                (indices.len() / 3).try_into().unwrap(),
                 &params,
             )
         };

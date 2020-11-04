@@ -1,6 +1,12 @@
 #include "VHACD.h"
 #include "bridge.h"
 
+// include these header only symbols in the static lib
+void IVHACD_reference_header_only_symbols() {
+    VHACD::IVHACD::Parameters p;
+    p.Init();
+}
+
 void IVHACD_Cancel(VHACD::IVHACD* self) {
     self->Cancel();
 }
@@ -69,4 +75,54 @@ bool IVHACD_ComputeCenterOfMass(
 // messages in the caller's current thread.
 bool IVHACD_IsReady_typed(const VHACD::IVHACD* self) {
     return self->IsReady();
+}
+
+class UserCallbackProxy : public VHACD::IVHACD::IUserCallback {
+private:
+    void* _self;
+    UserCallback _cb;
+
+public:
+    UserCallbackProxy(void* self, UserCallback cb) : _self(self), _cb(cb) {
+    }
+
+private:
+    virtual void Update(
+        const double overallProgress,
+        const double stageProgress,
+        const double operationProgress,
+        const char* const stage,
+        const char* const operation) override {
+        _cb(_self, overallProgress, stageProgress, operationProgress, stage, operation);
+    }
+};
+
+VHACD::IVHACD::IUserCallback* IVHACD_CreateUserCallback(void* self, UserCallback callback) {
+    return new UserCallbackProxy(self, callback);
+}
+
+void IVHACD_FreeUserCallback(VHACD::IVHACD::IUserCallback* callback) {
+    delete callback;
+}
+
+class UserLoggerProxy : public VHACD::IVHACD::IUserLogger {
+private:
+    UserLogger _cb;
+
+public:
+    UserLoggerProxy(UserLogger cb) : _cb(cb) {
+    }
+
+private:
+    virtual void Log(const char* const msg) override {
+        _cb(msg);
+    }
+};
+
+VHACD::IVHACD::IUserLogger* IVHACD_CreateUserLogger(UserLogger logger) {
+    return new UserLoggerProxy(logger);
+}
+
+void IVHACD_FreeUserLogger(VHACD::IVHACD::IUserLogger* logger) {
+    delete logger;
 }

@@ -10,6 +10,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .header("src/bridge.h")
         .clang_args(&["-I", "../v-hacd/src/VHACD_Lib/public"])
         .clang_args(&["-x", "c++", "-std=c++11"])
+        .derive_copy(false)
         .disable_name_namespacing()
         .generate_inline_functions(true)
         .whitelist_function("IVHACD_.*")
