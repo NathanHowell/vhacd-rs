@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 log = "0.4.11"
-ncollide3d = { version = "0.31.0", optional = true }
+ncollide3d = { version = "0.32.0", optional = true }
 tracing = "0.1.21"
 vhacd-sys = { path = "../vhacd-sys" }
 
