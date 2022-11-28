@@ -11,4 +11,4 @@ tracing = "0.1.21"
 vhacd-sys = { path = "../vhacd-sys" }
 
 [dev-dependencies]
-env_logger = "0.9.0"
+env_logger = "0.10.0"
