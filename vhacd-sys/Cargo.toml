@@ -5,5 +5,5 @@ authors = ["Nathan Howell <nathan.d.howell@gmail.com>"]
 edition = "2018"
 
 [build-dependencies]
-bindgen = "0.64.0"
+bindgen = "0.65.1"
 cc = "1"
